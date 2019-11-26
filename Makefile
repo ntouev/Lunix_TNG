@@ -1,7 +1,7 @@
 ################################################
-# 
+#
 # Makefile
-# for Lunix:TNG 
+# for Lunix:TNG
 #
 # Vangelis Koukis <vkoukis@cslab.ece.ntua.gr>
 #
@@ -41,27 +41,29 @@ USER_CFLAGS = -Wall -Werror #-m32
 
 PWD       := $(shell pwd)
 
-all:	modules lunix-attach
+all:	modules lunix-attach testLunix
 
 modules: lunix-lookup.h
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) $(KERNEL_VERBOSE) $(KERNEL_MAKE_ARGS) modules
 
-clean: 
+clean:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) $(KERNEL_VERBOSE) $(KERNEL_MAKE_ARGS) clean
 	rm -f modules.order
 	rm -f lunix-attach
 	rm -f mk_lookup_tables
 	rm -f lunix-lookup.h
+	rm testLunix
 
 lunix-attach: lunix.h lunix-attach.c
 	$(CC) $(USER_CFLAGS) -o $@ lunix-attach.c
 
+testLunix:
+	$(CC) -o testLunix testLunix.c
 #
 # Automagically generated lookup tables
-# 
+#
 lunix-lookup.h: mk_lookup_tables
 	./mk_lookup_tables >lunix-lookup.h
 
 mk_lookup_tables: mk_lookup_tables.c
 	$(CC) $(USER_CFLAGS) -o mk_lookup_tables mk_lookup_tables.c -lm
-

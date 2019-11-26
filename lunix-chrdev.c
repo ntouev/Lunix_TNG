@@ -4,7 +4,7 @@
  * Implementation of character devices
  * for Lunix:TNG
  *
- * Gouliamou Maria-Ethel
+ * Gouliamou Maria-Ethel,
  * Ntouros Evangelos
  *
  */
@@ -54,17 +54,16 @@ static int lunix_chrdev_state_needs_refresh(struct lunix_chrdev_state_struct *st
 }
 
 /*
- * Updates the cached state of a character device
- * based on sensor data. Must be called with the
- * character device state lock held.
+ * Updates the cached state of a character device based on sensor data. Must be
+ * called with the character device state lock held.
  */
 static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
 {
 	struct lunix_sensor_struct *sensor;
-    unsigned long flags;        //sumfwna me ton orismo tou spin_lock_irqsave
-    uint16_t value;             //eisodos tou lookup
-    long int result;            //eksodos tou lookup
-    uint32_t current_timestamp; //lunix_msr_data_struct
+    unsigned long flags;        //spinlock's flag is an unsigned long int
+    uint16_t value;             //lookup tables require uint16_t
+    long int result;            //lookup tables give long int
+    uint32_t current_timestamp; //defined in lunix_msr_data_struct
     int ret;
 
 	debug("entering\n");
@@ -91,32 +90,43 @@ static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
  	 */
     if(lunix_chrdev_state_needs_refresh(state))
     {
-        if (state->type == BATT)
-        {
-            result = lookup_voltage[value];
-        }
-        else if (state->type == TEMP)
-        {
-            result = lookup_temperature[value];
-        }
-        else if (state->type == LIGHT)
-        {
-            result = lookup_light[value];
-        }
-        else
-        {
-            debug("Internal Error: Type doesnt match one the three available \
-                                                        (BATT, TEMP, LIGHT)");
-            ret = -EMEDIUMTYPE;    //wrong medium type
-            goto out;
-        }
+        if (!state->raw_data)
+        {   //coocked data
+            if (state->type == BATT)
+            {
+                result = lookup_voltage[value];
+            }
+            else if (state->type == TEMP)
+            {
+                result = lookup_temperature[value];
+            }
+            else if (state->type == LIGHT)
+            {
+                result = lookup_light[value];
+            }
+            else
+            {
+                debug("Internal Error: Type doesnt match one the three available \
+                                                            (BATT, TEMP, LIGHT)");
+                ret = -EMEDIUMTYPE;    //wrong medium type
+                goto out;
+            }
 
-        /*save formatted data in chrdev state buffer*/
-        ret = 0;
-        state->buf_timestamp = current_timestamp;
-        state->buf_lim = snprintf(state->buf_data, LUNIX_CHRDEV_BUFSZ, \
-                                "%ld.%03ld\n", result/1000, result%1000);
-    }else
+            /*save formatted data in chrdev state buffer*/
+            ret = 0;
+            state->buf_timestamp = current_timestamp;
+            state->buf_lim = snprintf(state->buf_data, LUNIX_CHRDEV_BUFSZ, \
+                                    "%ld.%03ld\n", result/1000, result%1000);
+        }
+        else{   //raw data
+            debug("skipped lookup table conversion, returning raw bytes...\n");
+            ret = 0;
+            state->buf_timestamp = current_timestamp;
+            state->buf_lim = snprintf(state->buf_data, LUNIX_CHRDEV_BUFSZ, \
+                                    "%x\n", value); //prints raw_data as hex
+        }
+    }
+    else
     {
         ret = -EAGAIN;
     }
@@ -134,7 +144,6 @@ out:
 static int lunix_chrdev_open(struct inode *inode, struct file *filp)
 {
 	/* Declarations */
-	/* ? */
     unsigned int minor, sensor, type;
     int ret;
     struct lunix_chrdev_state_struct *state;
@@ -150,7 +159,7 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
 	 */
     minor = MINOR(inode->i_rdev);   //LDD3 sel 55
     sensor = minor/8;               // 0-15
-    type = minor%8;                 // 1-3
+    type = minor%8;                 // 0-2
     debug("Done assosiating file with sensor %d of type %d\n", sensor, type);
 
 	/* Allocate a new Lunix character device private state structure */
@@ -164,10 +173,10 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
     /*arxikopoihsh buffer*/
     state->buf_lim = 0;
     state->buf_timestamp = 0;
-    filp->private_data = state; //deixnei sthn trexousa katastash ths suskeyhs
+    filp->private_data = state; //points to the current state of the device
+    state->raw_data = 0;        //by default, in coocked data mode
 
-    //arxikopoihsh tou shmaforoy, time =1 dhladh dinw access sthn read()
-    sema_init(&state->lock,1);
+    sema_init(&state->lock,1);  //initialize semaphore with 1
     ret = 0;
 out:
 	debug("leaving, with ret = %d\n", ret);
@@ -185,6 +194,7 @@ static int lunix_chrdev_release(struct inode *inode, struct file *filp)
 static long lunix_chrdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     struct lunix_chrdev_state_struct *state;
+    debug("entering\n");
 
     //if cmd's type is not LUNIX_IOC_MAGIC (it is 60, the major number) return error
     if (_IOC_TYPE(cmd) != LUNIX_IOC_MAGIC) return -ENOTTY;
@@ -195,15 +205,19 @@ static long lunix_chrdev_ioctl(struct file *filp, unsigned int cmd, unsigned lon
 
     switch (cmd)
     {
-        case LUNIX_IOC_RAW:
+        case LUNIX_IOC_DATA_TYPE_CONVERT:
+            if (down_interruptible(&state->lock))   //is it needed?
+                return -ERESTARTSYS;
             //if I have raw data I turn them into coocked and vice versa
             if (state->raw_data)
                 state->raw_data = 0; //turned into coocked
             else
-                state->raw_data = 0; //turned into raw
+                state->raw_data = 1; //turned into raw
+            up(&state->lock);       //if statement needed?
+
     }
 
-    debug("successfully changed data type transfer\n");
+    debug("successfully changed data type transfer, now state->raw_data=%d\n", state->raw_data);
 	return 0;
 }
 
@@ -241,7 +255,7 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
             if (wait_event_interruptible(sensor->wq, lunix_chrdev_state_needs_refresh(state)))
                 //wait_event_interruptible returns nonzero when interrupted by signal
                 return -ERESTARTSYS;
-            //twra ksana pairnw to lock gia na sunexisw to read syscall
+            //now grab again the lock because you woke up, and conitnue the read
             if (down_interruptible(&state->lock))
                 return -ERESTARTSYS;
 		}
@@ -249,7 +263,6 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
     debug("Ok, now I have fresh values\n");
 
     /* Determine the number of cached bytes to copy to userspace */
-    //auta pou menoyn einai to (buffer limit) - (to arxiko position)
     remaining_bytes = state->buf_lim - *f_pos;
 
     if (cnt >= remaining_bytes)
@@ -257,8 +270,10 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
         cnt = remaining_bytes;
     }
 
-    //copy_to_user(to, from, count)
-    /*returns number of bytes that couldnt copy*/
+    /*
+     * copy_to_user(to, from, count)
+     * returns the number of bytes that couldnt copy
+     */
     if (copy_to_user(usrbuf, state->buf_data + *f_pos, cnt))
     {
         ret = -EFAULT;
@@ -269,7 +284,7 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
     *f_pos = *f_pos + cnt;
     ret = cnt;
 
-	/* Auto-rewind on EOF mode? */
+	/* Auto-rewind on EOF mode */
 	if (*f_pos == state->buf_lim)
         *f_pos = 0;
 
@@ -282,6 +297,7 @@ out:
 
 static int lunix_chrdev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
+    //Not implemented yet
 	return -EINVAL;
 }
 

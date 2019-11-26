@@ -59,8 +59,8 @@ void lunix_chrdev_destroy(void);
 /*
  * Definition of ioctl commands
  */
-#define LUNIX_IOC_MAGIC			LUNIX_CHRDEV_MAJOR
-#define LUNIX_IOC_RAW   		_IOR(LUNIX_IOC_MAGIC, 0, void *)
+#define LUNIX_IOC_MAGIC		               	LUNIX_CHRDEV_MAJOR
+#define LUNIX_IOC_DATA_TYPE_CONVERT   		_IOR(LUNIX_IOC_MAGIC, 0, void *)
 
 #define LUNIX_IOC_MAXNR			1
 
