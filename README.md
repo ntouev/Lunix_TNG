@@ -10,7 +10,7 @@
     * **$ ./testLunix /dev/lunixY-XXXX Z**, *where XXXX={temp,light,batt}, Y=[0,15] AND Z=0/1 (coocked/raw data)*  
    *(to see the XXXX measurement of the Y sensor)*   
        *or simply*,  
-    * **$cat /dev/lunixY-XXXX**, where XXXX={temp,light,batt} AND Y=[0,15]
+    * **$ cat /dev/lunixY-XXXX**, where XXXX={temp,light,batt} AND Y=[0,15]
 
 #### Usage without the script
 * Download or clone the repository

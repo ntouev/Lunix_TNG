@@ -59,6 +59,7 @@ static int lunix_chrdev_state_needs_refresh(struct lunix_chrdev_state_struct *st
  */
 static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
 {
+    //runs in interrupt context
 	struct lunix_sensor_struct *sensor;
     unsigned long flags;        //spinlock's flag is an unsigned long int
     uint16_t value;             //lookup tables require uint16_t
@@ -150,7 +151,7 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
 
 	debug("entering\n");
 	ret = -ENODEV;
-	if ((ret = nonseekable_open(inode, filp)) < 0)
+	if ((ret = nonseekable_open(inode, filp)) < 0) //???
 		goto out;
 
 	/*
@@ -170,10 +171,11 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
     state->type = type;
     state->sensor = &lunix_sensors[sensor];
 
-    /*arxikopoihsh buffer*/
+    /*buffer init*/
     state->buf_lim = 0;
     state->buf_timestamp = 0;
     filp->private_data = state; //points to the current state of the device
+                                //stores a pointer to it for easier access
     state->raw_data = 0;        //by default, in coocked data mode
 
     sema_init(&state->lock,1);  //initialize semaphore with 1
@@ -237,8 +239,8 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
 
 	/* Lock */
     if (down_interruptible(&state->lock))
-        return -ERESTARTSYS;
-
+        return -ERESTARTSYS; //Lets the VFS know (internally) that a signal arrived. ie "ctrl+C"
+                            //Now VFS restarts it or sends the user a -EINTR value.
     /*
 	 * If the cached character device state needs to be
 	 * updated by actual sensor data (i.e. we need to report
@@ -249,12 +251,20 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
 			/* The process needs to sleep */
 			/* See LDD3, page 153 for a hint */
             up(&state->lock);
-            //if the file was opened with nonblocking operation return
+            //if the file was opened with O_NONBLOCK flag return -EAGAIN
+            //so the nonblocking read persists even if it has not fresh values?
+            //Doesn't it sleep? Or maybe the user gets just an -EAGAIN error?
             if (filp->f_flags & O_NONBLOCK)
                 return -EAGAIN;
             if (wait_event_interruptible(sensor->wq, lunix_chrdev_state_needs_refresh(state)))
                 //wait_event_interruptible returns nonzero when interrupted by signal
                 return -ERESTARTSYS;
+            /*
+             * When I wake up means new data arrived and the driver wakes me up.
+             * An interrupt has occured, and as part of that interrupt the interrupt
+             * handler wakes me up. So I run in interrupt context. So that is why we
+             * use spinlocks in "lunix_chrdev_state_update()" function
+             */
             //now grab again the lock because you woke up, and conitnue the read
             if (down_interruptible(&state->lock))
                 return -ERESTARTSYS;
@@ -297,8 +307,22 @@ out:
 
 static int lunix_chrdev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-    //Not implemented yet
-	return -EINVAL;
+/*
+    //UNDER CONSTRUCTION
+    address =
+    vma->vm_pgoff = __pa(address) >> PAGE_SHIFT;
+
+    if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, \
+                        vma->vm_end - vma->vm_start,\
+                        vma->vm_page_prot))
+        return -EGAIN;
+
+    vma->vm_ops = &simple_remap_vm_ops;
+    simple_vma_open(vma);
+
+	return 0;
+*/
+    return -EINVAL;
 }
 
 static struct file_operations lunix_chrdev_fops =
@@ -325,13 +349,16 @@ int lunix_chrdev_init(void)
 
 	debug("initializing character device\n");
 
-    //I 've already allocated -above- the struct (lunix_chrdev_cdev)
-    //and now I initialize it. I give it the file operations
+    //Initialize the struct. Give it the file operations.The device responds to multiple numbers.
 	cdev_init(&lunix_chrdev_cdev, &lunix_chrdev_fops);
 	lunix_chrdev_cdev.owner = THIS_MODULE;
 
-    /* register_chrdev_region */
-	dev_no = MKDEV(LUNIX_CHRDEV_MAJOR, 0); //"make" the first device
+    /*
+     * register_chrdev_region
+     * Give multiple device numbers to the same device.
+     * "The device responds to multiple device numbers."
+     */
+	dev_no = MKDEV(LUNIX_CHRDEV_MAJOR, 0); //the first device number to which the device responds
 
     ret = register_chrdev_region(dev_no, lunix_minor_cnt, "Lunix:TNG");
 	if (ret < 0) {
@@ -340,7 +367,7 @@ int lunix_chrdev_init(void)
 	}
     debug("device registered successfully\n");
 
-	/* cdev_add */
+    /* cdev_add: From now on the device is "alive" and shall listen to method requests */
     ret = cdev_add(&lunix_chrdev_cdev, dev_no, lunix_minor_cnt);
 	if (ret < 0) {
 		debug("failed to add character device\n");
