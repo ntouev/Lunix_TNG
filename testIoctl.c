@@ -1,4 +1,7 @@
-//A userspace program to test the ioctl method
+/*
+ * This program tests the ioctl method
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,7 +23,7 @@ int main(int argc, char **argv)
 
     if (argc != 3)
     {
-        fprintf(stderr, "Usage: ./testLunix /dev/lunixX-XXXX Y[0/1], 1:for raw_data\n");
+        fprintf(stderr, "Usage: ./testIoctl /dev/lunixX-XXXX Y[0/1], 1:for raw_data\n");
         return 1;
     }
 

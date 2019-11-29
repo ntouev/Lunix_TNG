@@ -41,7 +41,7 @@ USER_CFLAGS = -Wall -Werror #-m32
 
 PWD       := $(shell pwd)
 
-all:	modules lunix-attach testLunix
+all:	modules lunix-attach testIoctl
 
 modules: lunix-lookup.h
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) $(KERNEL_VERBOSE) $(KERNEL_MAKE_ARGS) modules
@@ -52,13 +52,13 @@ clean:
 	rm -f lunix-attach
 	rm -f mk_lookup_tables
 	rm -f lunix-lookup.h
-	rm testLunix
+	rm testIoctl
 
 lunix-attach: lunix.h lunix-attach.c
 	$(CC) $(USER_CFLAGS) -o $@ lunix-attach.c
 
-testLunix:
-	$(CC) -o testLunix testLunix.c
+testIoctl:
+	$(CC) -o testIoctl testIoctl.c
 #
 # Automagically generated lookup tables
 #

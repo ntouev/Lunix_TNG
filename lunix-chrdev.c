@@ -43,7 +43,7 @@ static int lunix_chrdev_state_needs_refresh(struct lunix_chrdev_state_struct *st
     int ret = 0; //by default we are assuming that the state doesnt need refreshing
 	struct lunix_sensor_struct *sensor;
 
-	WARN_ON ( !(sensor = state->sensor));  //???
+	WARN_ON ( !(sensor = state->sensor)); //???
     if (sensor->msr_data[state->type]->last_update != state->buf_timestamp)
     {
         debug("State needs refreshing!\n");
@@ -59,7 +59,6 @@ static int lunix_chrdev_state_needs_refresh(struct lunix_chrdev_state_struct *st
  */
 static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
 {
-    //runs in interrupt context
 	struct lunix_sensor_struct *sensor;
     unsigned long flags;        //spinlock's flag is an unsigned long int
     uint16_t value;             //lookup tables require uint16_t
@@ -75,7 +74,9 @@ static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
 	 * Grab the raw data quickly, hold the spinlock for as little as possible.
 	 */
 
-     // save the state, if locked already it is saved in flags
+     //save the state, if locked already it is saved in flags
+     //saving the state here with irqsave is redundant
+     //spinlock is used here because of small code not interrupt context
      spin_lock_irqsave(&sensor->lock, flags);
      value = sensor->msr_data[state->type]->values[0];
      current_timestamp = sensor->msr_data[state->type]->last_update;
@@ -89,7 +90,7 @@ static int lunix_chrdev_state_update(struct lunix_chrdev_state_struct *state)
  	 * Now we can take our time to format them, holding only the private state
  	 * semaphore. This is implemented in open syscall.
  	 */
-    if(lunix_chrdev_state_needs_refresh(state))
+    if(sensor->msr_data[state->type]->last_update > state->buf_timestamp)
     {
         if (!state->raw_data)
         {   //coocked data
@@ -158,7 +159,7 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
 	 * Associate this open file with the relevant sensor based on
 	 * the minor number of the device node [/dev/sensor<NO>-<TYPE>]
 	 */
-    minor = MINOR(inode->i_rdev);   //LDD3 sel 55
+    minor = MINOR(inode->i_rdev);   //LDD3 page 55
     sensor = minor/8;               // 0-15
     type = minor%8;                 // 0-2
     debug("Done assosiating file with sensor %d of type %d\n", sensor, type);
@@ -178,7 +179,7 @@ static int lunix_chrdev_open(struct inode *inode, struct file *filp)
                                 //stores a pointer to it for easier access
     state->raw_data = 0;        //by default, in coocked data mode
 
-    sema_init(&state->lock,1);  //initialize semaphore with 1
+    sema_init(&state->lock,1);  //initialize semaphore with 1, refers to a single struct file
     ret = 0;
 out:
 	debug("leaving, with ret = %d\n", ret);
@@ -237,10 +238,14 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
 	WARN_ON(!sensor);
     debug("entering!\n");
 
-	/* Lock */
+	/*
+     * Lock, in case processes with the same fd (struct file) try to access the read
+     * eg possible problem would be that a child reads the file and changes the f_pos
+     * Then, say, the father reads the file also. He gets wrong values.
+     */
     if (down_interruptible(&state->lock))
         return -ERESTARTSYS; //Lets the VFS know (internally) that a signal arrived. ie "ctrl+C"
-                            //Now VFS restarts it or sends the user a -EINTR value.
+                             //Now VFS restarts it or sends the user a -EINTR value.
     /*
 	 * If the cached character device state needs to be
 	 * updated by actual sensor data (i.e. we need to report
@@ -252,20 +257,13 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
 			/* See LDD3, page 153 for a hint */
             up(&state->lock);
             //if the file was opened with O_NONBLOCK flag return -EAGAIN
-            //so the nonblocking read persists even if it has not fresh values?
-            //Doesn't it sleep? Or maybe the user gets just an -EAGAIN error?
             if (filp->f_flags & O_NONBLOCK)
                 return -EAGAIN;
+            //sleep, if condition is TRUE, if you re woken up check condition again and sleep or leave
             if (wait_event_interruptible(sensor->wq, lunix_chrdev_state_needs_refresh(state)))
                 //wait_event_interruptible returns nonzero when interrupted by signal
                 return -ERESTARTSYS;
-            /*
-             * When I wake up means new data arrived and the driver wakes me up.
-             * An interrupt has occured, and as part of that interrupt the interrupt
-             * handler wakes me up. So I run in interrupt context. So that is why we
-             * use spinlocks in "lunix_chrdev_state_update()" function
-             */
-            //now grab again the lock because you woke up, and conitnue the read
+            //now grab again the lock because you woke up, and continue the read
             if (down_interruptible(&state->lock))
                 return -ERESTARTSYS;
 		}
@@ -345,7 +343,7 @@ int lunix_chrdev_init(void)
 	 */
 	int ret;
 	dev_t dev_no;
-	unsigned int lunix_minor_cnt = lunix_sensor_cnt << 3; //16*8 = 128???
+	unsigned int lunix_minor_cnt = lunix_sensor_cnt << 3; //16*8 = 128
 
 	debug("initializing character device\n");
 
