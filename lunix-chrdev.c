@@ -209,14 +209,14 @@ static long lunix_chrdev_ioctl(struct file *filp, unsigned int cmd, unsigned lon
     switch (cmd)
     {
         case LUNIX_IOC_DATA_TYPE_CONVERT:
-            if (down_interruptible(&state->lock))   //is it needed?
+            if (down_interruptible(&state->lock)) //in case multiple procs with same fd use ioctl
                 return -ERESTARTSYS;
             //if I have raw data I turn them into coocked and vice versa
             if (state->raw_data)
                 state->raw_data = 0; //turned into coocked
             else
                 state->raw_data = 1; //turned into raw
-            up(&state->lock);       //if statement needed?
+            up(&state->lock);
 
     }
 
@@ -305,23 +305,51 @@ out:
 
 static int lunix_chrdev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-/*
+    /*
     //UNDER CONSTRUCTION
-    address =
-    vma->vm_pgoff = __pa(address) >> PAGE_SHIFT;
+    struct lunix_chrdev_state_struct *state;
+    struct lunix_sensor_struct *sensor;
+    struct page *kernel_page;
+    unsigned long long *kernel_page_address;
+
+    state = filp->private_data;
+    sensor = state->sensor;
+
+    kernel_page = virt_to_page(sensor->msr_data[state->type]->values);
+    kernel_page_address = page_address(kernel_page);
+    vma->vm_pgoff = __pa(kernel_page_address) >> PAGE_SHIFT;
 
     if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, \
                         vma->vm_end - vma->vm_start,\
                         vma->vm_page_prot))
-        return -EGAIN;
+        return -EAGAIN;
 
     vma->vm_ops = &simple_remap_vm_ops;
     simple_vma_open(vma);
 
 	return 0;
-*/
+    */
     return -EINVAL;
 }
+
+/*
+void simple_vma_open(struct vm_area_struct *vma)
+{
+    printk(KERN_NOTICE "simple VMA open, virt %lx, phys %lx\n", \
+            vma->start, vma->vm_pgoff << PAGE_SHIFT);
+}
+
+void simple_vma_close(struct vm_area_struct *vma)
+{
+    printk(KERN_NOTICE "simple VMA close.\n");
+}
+
+static struct vm_operations_struct simple_remap_vm_ops =
+{
+    .close = simple_vma_close,
+    .open = simple_vm_open,
+};
+*/
 
 static struct file_operations lunix_chrdev_fops =
 {
