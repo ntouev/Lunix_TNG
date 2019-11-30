@@ -1,8 +1,3 @@
-***Trying to add mmap method***  
-*TODO:*
-* *fix mmap operations in lunix-chrdev.c*
-* *fix testMmap.c for testing*
-
 # Lunix-TNG-Linux-Driver-OsLab-NTUA
 *Contains the development of a driver for Lunix:TNG, a light-temperature-voltage sensor, in Linux Kernel. This implementation was made for OsLab lecture in NTUA in 2019-2020.*
 
@@ -19,3 +14,6 @@
 * *(To test ioctl method)* In another shell as a user:
     * **$ ./testIoctl /dev/lunixY-XXXX Z**, *where XXXX={temp,light,batt}, Y=[0,15] AND Z=0/1 (coocked/raw data)*  
    *(to see the XXXX measurement of the Y sensor)*   
+* *(To test mmap method)* In another shell as a user:
+   * **$ ./testMmap /dev/lunixY-XXXX**, *where XXXX={temp,light,batt}, Y=[0,15]  
+      (to see the XXXX measurement, in RAW bytes, of the Y sensor)*   
