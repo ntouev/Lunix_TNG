@@ -35,6 +35,9 @@ int main(int argc, char **argv)
     }
     printf("Opened special file %s with fd: %d\n", argv[1], fd);
 
+    //ask for something smaller or equal to a page size.
+    //then by default one page will returns
+    //note that the drivers mmap is implemented to return only one page
     addr = mmap(NULL, 20, PROT_READ, MAP_PRIVATE, fd, 0);
     if (addr == MAP_FAILED)
     {

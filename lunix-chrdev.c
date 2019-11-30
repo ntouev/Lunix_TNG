@@ -321,6 +321,7 @@ static struct vm_operations_struct simple_remap_vm_ops =
     .open = simple_vma_open,
 };
 
+//This implementation uses remap_pfn_range and returns only one page, since it is enough.
 static int lunix_chrdev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     struct lunix_chrdev_state_struct *state;
@@ -344,7 +345,7 @@ static int lunix_chrdev_mmap(struct file *filp, struct vm_area_struct *vma)
                         vma->vm_page_prot))
         return -EAGAIN;
 
-    //useless, just written for code wholeness, it could be deleted.
+    //unessesary, just written for code wholeness, it could be deleted.
     vma->vm_ops = &simple_remap_vm_ops;
     simple_vma_open(vma);
 
