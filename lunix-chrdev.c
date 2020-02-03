@@ -258,7 +258,7 @@ static ssize_t lunix_chrdev_read(struct file *filp, char __user *usrbuf, size_t 
             //if the file was opened with O_NONBLOCK flag return -EAGAIN
             if (filp->f_flags & O_NONBLOCK)
                 return -EAGAIN;
-            //sleep, if condition is TRUE, if you re woken up check condition again and sleep or leave
+            //sleep, if condition is FALSE, if you re woken up check condition again and sleep or leave
             if (wait_event_interruptible(sensor->wq, lunix_chrdev_state_needs_refresh(state)))
                 //wait_event_interruptible returns nonzero when interrupted by signal
                 return -ERESTARTSYS;
